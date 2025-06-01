@@ -78,6 +78,13 @@ class NotificationService {
   // Initialize notification service
   async initialize(): Promise<boolean> {
     try {
+      // On web platform, notifications are not supported
+      if (Platform.OS === 'web') {
+        console.warn('Push notifications are not supported on web platform');
+        this.isInitialized = true; // Mark as initialized to prevent errors
+        return true; // Return true to allow app to continue
+      }
+
       if (!Device.isDevice) {
         console.warn('Push notifications only work on physical devices');
         return false;
@@ -99,7 +106,7 @@ class NotificationService {
 
       // Get push token
       this.expoPushToken = await this.getExpoPushToken();
-      
+
       if (this.expoPushToken) {
         console.log('Push token obtained:', this.expoPushToken);
         await this.storePushToken(this.expoPushToken);
@@ -173,6 +180,12 @@ class NotificationService {
         return null;
       }
 
+      // On web platform, just log the notification
+      if (Platform.OS === 'web') {
+        console.log('Web notification (simulated):', notificationData.title, notificationData.body);
+        return `web_notification_${Date.now()}`;
+      }
+
       const notificationId = await Notifications.scheduleNotificationAsync({
         content: {
           title: notificationData.title,
@@ -200,6 +213,12 @@ class NotificationService {
       if (!this.isInitialized || !notificationData.scheduledTime) {
         console.warn('Notification service not initialized or no scheduled time provided');
         return null;
+      }
+
+      // On web platform, just log the scheduled notification
+      if (Platform.OS === 'web') {
+        console.log('Web scheduled notification (simulated):', notificationData.title, 'at', notificationData.scheduledTime);
+        return `web_scheduled_${Date.now()}`;
       }
 
       const notificationId = await Notifications.scheduleNotificationAsync({
@@ -294,12 +313,18 @@ class NotificationService {
 
   // Get notification permission status
   async getPermissionStatus(): Promise<string> {
+    if (Platform.OS === 'web') {
+      return 'granted'; // Simulate granted status on web
+    }
     const { status } = await Notifications.getPermissionsAsync();
     return status;
   }
 
   // Request notification permissions
   async requestPermissions(): Promise<boolean> {
+    if (Platform.OS === 'web') {
+      return true; // Simulate granted permissions on web
+    }
     const { status } = await Notifications.requestPermissionsAsync();
     return status === 'granted';
   }

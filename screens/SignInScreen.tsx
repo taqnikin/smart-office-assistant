@@ -8,10 +8,7 @@ import {
   Platform,
   KeyboardAvoidingView,
   ActivityIndicator,
-  TouchableWithoutFeedback,
-  Keyboard,
-  ScrollView,
-  Alert
+  ScrollView
 } from 'react-native';
 import { AuthContext } from '../AuthContext';
 import { toast } from 'sonner-native';
@@ -22,11 +19,17 @@ export default function SignInScreen() {
   const auth = useContext(AuthContext);
   const { loading: authLoading } = auth;
   const signIn = auth.signIn;
-  
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+
+  // Debug logging to check auth loading state
+  React.useEffect(() => {
+    console.log('SignInScreen - authLoading:', authLoading);
+    console.log('SignInScreen - signIn function available:', typeof signIn === 'function');
+  }, [authLoading, signIn]);
 
   const handleSignIn = async () => {
     // Reset any previous error
@@ -97,14 +100,13 @@ export default function SignInScreen() {
     }
   }, []);
 
-  const isLoading = isSubmitting || authLoading;
+  const isLoading = isSubmitting; // Temporarily remove authLoading dependency for debugging
 
   return (
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-      <ScrollView 
-        contentContainerStyle={styles.scrollContainer}
-        keyboardShouldPersistTaps="handled"
-      >
+    <ScrollView
+      contentContainerStyle={styles.scrollContainer}
+      keyboardShouldPersistTaps="handled"
+    >
         <KeyboardAvoidingView 
           style={styles.container} 
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -112,6 +114,20 @@ export default function SignInScreen() {
           <View style={styles.contentContainer}>
             <Text style={styles.title}>SmartOffice Sign In</Text>
             <Text style={styles.subtitle}>Use your ID and password to sign in</Text>
+
+            {/* Debug info */}
+            {__DEV__ && (
+              <View style={styles.debugContainer}>
+                <Text style={styles.debugText}>
+                  Auth Loading: {authLoading ? 'Yes' : 'No'} |
+                  Is Submitting: {isSubmitting ? 'Yes' : 'No'} |
+                  Inputs Enabled: {!isLoading ? 'Yes' : 'No'}
+                </Text>
+                <Text style={styles.debugText}>
+                  Email: "{email}" | Password: "{password ? '***' : ''}"
+                </Text>
+              </View>
+            )}
             
             {errorMessage ? (
               <View style={styles.errorContainer}>
@@ -127,12 +143,18 @@ export default function SignInScreen() {
                 autoCapitalize="none"
                 value={email}
                 onChangeText={(text) => {
+                  console.log('Email input changed:', text);
                   setEmail(text);
                   // Clear error when typing
                   if (errorMessage) setErrorMessage('');
                 }}
+                onFocus={() => console.log('Email input focused')}
+                onBlur={() => console.log('Email input blurred')}
                 keyboardType="email-address"
                 editable={!isLoading}
+                autoComplete="email"
+                textContentType="emailAddress"
+                returnKeyType="next"
                 testID="email-input"
               />
             </View>
@@ -145,11 +167,17 @@ export default function SignInScreen() {
                 secureTextEntry
                 value={password}
                 onChangeText={(text) => {
+                  console.log('Password input changed:', text);
                   setPassword(text);
                   // Clear error when typing
                   if (errorMessage) setErrorMessage('');
                 }}
+                onFocus={() => console.log('Password input focused')}
+                onBlur={() => console.log('Password input blurred')}
                 editable={!isLoading}
+                autoComplete="password"
+                textContentType="password"
+                returnKeyType="done"
                 testID="password-input"
               />
             </View>
@@ -223,8 +251,7 @@ export default function SignInScreen() {
             </View>
           </View>
         </KeyboardAvoidingView>
-      </ScrollView>
-    </TouchableWithoutFeedback>
+    </ScrollView>
   );
 }
 
@@ -385,5 +412,18 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#555',
     marginLeft: 8
+  },
+  debugContainer: {
+    backgroundColor: '#fff3cd',
+    borderRadius: 4,
+    padding: 8,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#ffeaa7'
+  },
+  debugText: {
+    fontSize: 12,
+    color: '#856404',
+    textAlign: 'center'
   }
 });

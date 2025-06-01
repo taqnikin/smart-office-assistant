@@ -117,25 +117,21 @@ function AppStackNavigator() {
   return (
     <AppStack.Navigator
       screenOptions={{ headerShown: false, animation: 'slide_from_right', contentStyle: { backgroundColor: '#FFFFFF' } }}
+      initialRouteName={user?.isFirstTimeUser ? "Onboarding" : "Home"}
     >
-      {user?.isFirstTimeUser ? (
-        <AppStack.Screen
-          name="Onboarding"
-          component={WrappedOnboardingScreen}
-          options={{ gestureEnabled: false }} // Prevent back gestures during onboarding
-        />
-      ) : (
-        <>
-          <AppStack.Screen name="Home" component={WrappedHomeScreen} />
-          <AppStack.Screen name="BookRoom" component={WrappedBookRoomScreen} />
-          <AppStack.Screen name="Parking" component={WrappedParkingScreen} />
-          <AppStack.Screen name="Attendance" component={WrappedAttendanceScreen} />
-          <AppStack.Screen name="AdminDashboard" component={WrappedAdminDashboardScreen} />
-          <AppStack.Screen name="Chatbot" component={WrappedChatbotScreen} />
-          <AppStack.Screen name="Profile" component={WrappedProfileScreen} />
-          <AppStack.Screen name="NotificationSettings" component={WrappedNotificationSettingsScreen} />
-        </>
-      )}
+      <AppStack.Screen
+        name="Onboarding"
+        component={WrappedOnboardingScreen}
+        options={{ gestureEnabled: false }} // Prevent back gestures during onboarding
+      />
+      <AppStack.Screen name="Home" component={WrappedHomeScreen} />
+      <AppStack.Screen name="BookRoom" component={WrappedBookRoomScreen} />
+      <AppStack.Screen name="Parking" component={WrappedParkingScreen} />
+      <AppStack.Screen name="Attendance" component={WrappedAttendanceScreen} />
+      <AppStack.Screen name="AdminDashboard" component={WrappedAdminDashboardScreen} />
+      <AppStack.Screen name="Chatbot" component={WrappedChatbotScreen} />
+      <AppStack.Screen name="Profile" component={WrappedProfileScreen} />
+      <AppStack.Screen name="NotificationSettings" component={WrappedNotificationSettingsScreen} />
     </AppStack.Navigator>
   );
 }
@@ -195,7 +191,6 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    userSelect: "none"
   },
   loadingContainer: {
     flex: 1,

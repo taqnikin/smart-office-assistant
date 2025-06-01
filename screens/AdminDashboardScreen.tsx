@@ -11,6 +11,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import ErrorAnalytics from '../components/ErrorAnalytics';
+import UserManagement from '../components/UserManagement';
+import { adminAPI, User } from '../lib/supabase-api';
 
 // Sample data for charts
 const ATTENDANCE_DATA = {
@@ -62,9 +64,18 @@ const ROOM_OCCUPANCY = {
 };
 
 // Helper to create a simple bar chart
-const SimpleBarChart = ({ data, height = 200, barWidth = 16, spacing = 30 }) => {
+interface BarChartDataset {
+  data: number[];
+  color: string;
+  label: string;
+}
+interface BarChartData {
+  labels: string[];
+  datasets: BarChartDataset[];
+}
+const SimpleBarChart = ({ data, height = 200, barWidth = 16, spacing = 30 }: { data: BarChartData; height?: number; barWidth?: number; spacing?: number }) => {
   // Find the max value to scale properly
-  const maxValue = Math.max(...data.datasets.reduce((acc, dataset) => {
+  const maxValue = Math.max(...data.datasets.reduce((acc: number[], dataset: BarChartDataset) => {
     return [...acc, ...dataset.data];
   }, []));
   
@@ -94,9 +105,9 @@ const SimpleBarChart = ({ data, height = 200, barWidth = 16, spacing = 30 }) => 
       
       {/* Bars */}
       <View style={styles.barsContainer}>
-        {data.labels.map((label, labelIndex) => (
+        {data.labels.map((label: string, labelIndex: number) => (
           <View key={label} style={styles.barGroup}>
-            {data.datasets.map((dataset, datasetIndex) => (
+            {data.datasets.map((dataset: BarChartDataset, datasetIndex: number) => (
               <View 
                 key={`${label}-${datasetIndex}`}
                 style={[
@@ -118,9 +129,9 @@ const SimpleBarChart = ({ data, height = 200, barWidth = 16, spacing = 30 }) => 
 };
 
 // Legend component
-const ChartLegend = ({ datasets }) => (
+const ChartLegend = ({ datasets }: { datasets: BarChartDataset[] }) => (
   <View style={styles.legendContainer}>
-    {datasets.map((dataset, index) => (
+    {datasets.map((dataset: BarChartDataset, index: number) => (
       <View key={index} style={styles.legendItem}>
         <View style={[styles.legendColor, { backgroundColor: dataset.color }]} />
         <Text style={styles.legendText}>{dataset.label}</Text>
@@ -130,7 +141,7 @@ const ChartLegend = ({ datasets }) => (
 );
 
 // Simple card stats
-const StatCard = ({ title, value, icon, color, subtitle }) => (
+const StatCard = ({ title, value, icon, color, subtitle }: { title: string; value: string; icon: string; color: string; subtitle?: string }) => (
   <View style={styles.statCard}>
     <View style={styles.statHeader}>
       <Text style={styles.statTitle}>{title}</Text>
@@ -145,8 +156,16 @@ const StatCard = ({ title, value, icon, color, subtitle }) => (
 
 export default function AdminDashboardScreen() {
   const navigation = useNavigation();
-  const [activeTimeRange, setActiveTimeRange] = useState('week');
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTimeRange, setActiveTimeRange] = useState<string>('week');
+  const [activeTab, setActiveTab] = useState<string>('overview');
+  const [users, setUsers] = useState<User[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState<boolean>(false);
+
+  const handleDeleteUser = async (id: string) => {
+    if (!window.confirm('Are you sure you want to delete this user?')) return;
+    await adminAPI.softDeleteUser(id);
+    setUsers((users: User[]) => users.filter((u: User) => u.id !== id));
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -171,6 +190,19 @@ export default function AdminDashboardScreen() {
           />
           <Text style={[styles.tabText, activeTab === 'overview' && styles.activeTabText]}>
             Overview
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'users' && styles.activeTab]}
+          onPress={() => setActiveTab('users')}
+        >
+          <Ionicons
+            name="people-outline"
+            size={20}
+            color={activeTab === 'users' ? '#4A80F0' : '#999'}
+          />
+          <Text style={[styles.tabText, activeTab === 'users' && styles.activeTabText]}>
+            Users
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -364,6 +396,8 @@ export default function AdminDashboardScreen() {
           </View>
         </View>
         </ScrollView>
+      ) : activeTab === 'users' ? (
+        <UserManagement />
       ) : (
         <ErrorAnalytics />
       )}

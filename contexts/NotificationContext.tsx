@@ -67,6 +67,32 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({ chil
   const [pushToken, setPushToken] = useState<string | null>(null);
   const [preferences, setPreferences] = useState<UserNotificationPreferences | null>(null);
 
+  // Initialize notification service
+  const initializeNotifications = useCallback(async (): Promise<boolean> => {
+    try {
+      const success = await notificationService.initialize();
+      setIsInitialized(success);
+
+      if (success) {
+        const token = await notificationService.getPushToken();
+        setPushToken(token);
+
+        const status = await notificationService.getPermissionStatus();
+        setPermissionStatus(status);
+
+        if (user?.id) {
+          const userPrefs = await notificationService.getUserPreferences(user.id);
+          setPreferences(userPrefs);
+        }
+      }
+
+      return success;
+    } catch (error) {
+      console.error('Error initializing notifications:', error);
+      return false;
+    }
+  }, [user?.id]);
+
   // Initialize notifications when user logs in
   useEffect(() => {
     if (user?.id && !isInitialized) {
@@ -118,32 +144,6 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({ chil
       }
     }
   };
-
-  // Initialize notification service
-  const initializeNotifications = useCallback(async (): Promise<boolean> => {
-    try {
-      const success = await notificationService.initialize();
-      setIsInitialized(success);
-
-      if (success) {
-        const token = await notificationService.getPushToken();
-        setPushToken(token);
-
-        const status = await notificationService.getPermissionStatus();
-        setPermissionStatus(status);
-
-        if (user?.id) {
-          const userPrefs = await notificationService.getUserPreferences(user.id);
-          setPreferences(userPrefs);
-        }
-      }
-
-      return success;
-    } catch (error) {
-      console.error('Error initializing notifications:', error);
-      return false;
-    }
-  }, [user?.id]);
 
   // Send immediate notification
   const sendNotification = useCallback(async (data: NotificationData): Promise<string | null> => {

@@ -40,8 +40,22 @@ class ConfigService {
   private config: AppConfig;
 
   private constructor() {
-    this.config = this.loadConfiguration();
-    this.validateConfiguration();
+    try {
+      console.log('ConfigService: Initializing configuration...');
+      this.config = this.loadConfiguration();
+      this.validateConfiguration();
+      console.log('ConfigService: Configuration loaded successfully');
+
+      // Debug configuration in development
+      if (__DEV__) {
+        this.debugConfiguration();
+      }
+    } catch (error) {
+      console.error('ConfigService: Failed to initialize configuration:', error);
+      // Provide fallback configuration to prevent app crash
+      this.config = this.getFallbackConfiguration();
+      console.warn('ConfigService: Using fallback configuration');
+    }
   }
 
   static getInstance(): ConfigService {
@@ -56,9 +70,22 @@ class ConfigService {
     const expoConfig = Constants.expoConfig;
     const extra = expoConfig?.extra || {};
 
-    // Fallback to process.env for web/development
+    // Enhanced fallback for web/development environment
     const getEnvVar = (key: string, defaultValue?: string): string => {
-      return extra[key] || process.env[key] || defaultValue || '';
+      // Try multiple sources for environment variables
+      let value = extra[key] || process.env[key];
+
+      // For web environment, also check window object if available
+      if (!value && typeof window !== 'undefined' && (window as any).ENV) {
+        value = (window as any).ENV[key];
+      }
+
+      // Log environment variable access for debugging
+      if (__DEV__) {
+        console.log(`ConfigService: ${key} = ${value ? '[SET]' : '[NOT_SET]'} (default: ${defaultValue})`);
+      }
+
+      return value || defaultValue || '';
     };
 
     const getBooleanEnvVar = (key: string, defaultValue: boolean = false): boolean => {
@@ -105,6 +132,41 @@ class ConfigService {
     };
   }
 
+  private getFallbackConfiguration(): AppConfig {
+    console.log('ConfigService: Creating fallback configuration...');
+    return {
+      supabase: {
+        url: 'https://udnhkdnbvjzcxooukqrq.supabase.co',
+        anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVkbmhrZG5idmp6Y3hvb3VrcXJxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDg2Njk1NTYsImV4cCI6MjA2NDI0NTU1Nn0.fUGiIMEf7xk7R0G9EFOjYkJpO3ptkrMYjnwkA-PeOPs',
+      },
+      app: {
+        name: 'Smart Office Assistant',
+        version: '1.0.0',
+        environment: 'development' as const,
+      },
+      security: {
+        sessionTimeout: 3600000, // 1 hour
+        maxLoginAttempts: 5,
+        lockoutDuration: 900000, // 15 minutes
+      },
+      features: {
+        debugLogging: true,
+        errorReporting: true,
+        analytics: false,
+      },
+      api: {
+        timeout: 30000, // 30 seconds
+        maxRetryAttempts: 3,
+      },
+      notifications: {
+        enabled: true,
+      },
+      web: {
+        cspEnabled: false,
+      },
+    };
+  }
+
   private validateConfiguration(): void {
     const errors: string[] = [];
 
@@ -144,7 +206,12 @@ class ConfigService {
 
     if (errors.length > 0) {
       console.error('Configuration validation errors:', errors);
-      throw new Error(`Configuration validation failed: ${errors.join(', ')}`);
+      // In development, log warnings instead of throwing to prevent app crash
+      if (__DEV__) {
+        console.warn('ConfigService: Validation failed but continuing in development mode');
+      } else {
+        throw new Error(`Configuration validation failed: ${errors.join(', ')}`);
+      }
     }
   }
 

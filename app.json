@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "a0-project",
-    "slug": "snack-35271732-3e7e-4425-86d1-f6cff4bb599f",
+    "name": "Smart Office Assistant",
+    "slug": "smart-office-assistant",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -24,6 +24,23 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "description": "Quickly generate React Native components with AI"
+    "description": "Smart Office Assistant - Manage your office workspace efficiently",
+    "extra": {
+      "EXPO_PUBLIC_SUPABASE_URL": "https://udnhkdnbvjzcxooukqrq.supabase.co",
+      "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVkbmhrZG5idmp6Y3hvb3VrcXJxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDg2Njk1NTYsImV4cCI6MjA2NDI0NTU1Nn0.fUGiIMEf7xk7R0G9EFOjYkJpO3ptkrMYjnwkA-PeOPs",
+      "EXPO_PUBLIC_APP_NAME": "Smart Office Assistant",
+      "EXPO_PUBLIC_APP_VERSION": "1.0.0",
+      "EXPO_PUBLIC_ENVIRONMENT": "development",
+      "EXPO_PUBLIC_ENABLE_DEBUG_LOGGING": "true",
+      "EXPO_PUBLIC_ENABLE_ERROR_REPORTING": "true",
+      "EXPO_PUBLIC_ENABLE_ANALYTICS": "false",
+      "EXPO_PUBLIC_SESSION_TIMEOUT": "3600000",
+      "EXPO_PUBLIC_MAX_LOGIN_ATTEMPTS": "5",
+      "EXPO_PUBLIC_LOCKOUT_DURATION": "900000",
+      "EXPO_PUBLIC_API_TIMEOUT": "30000",
+      "EXPO_PUBLIC_MAX_RETRY_ATTEMPTS": "3",
+      "EXPO_PUBLIC_NOTIFICATIONS_ENABLED": "true",
+      "EXPO_PUBLIC_CSP_ENABLED": "false"
+    }
   }
 }

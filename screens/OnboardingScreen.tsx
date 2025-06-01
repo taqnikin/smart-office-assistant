@@ -43,6 +43,17 @@ const OnboardingScreen = () => {
   const [onboardingStep, setOnboardingStep] = useState(0);
   const [isCompleted, setIsCompleted] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
+
+  // Debug logging
+  useEffect(() => {
+    console.log('OnboardingScreen - User:', user ? 'Logged in' : 'Not logged in');
+    console.log('OnboardingScreen - User details:', {
+      id: user?.id,
+      email: user?.email,
+      isFirstTimeUser: user?.isFirstTimeUser,
+      hasEmployeeDetails: !!user?.employeeDetails
+    });
+  }, [user]);
   
   // Animation values
   const buttonScale = useSharedValue(0.8);
@@ -59,7 +70,7 @@ const OnboardingScreen = () => {
 
   // Access employee details or provide defaults
   const employeeDetails = user?.employeeDetails || {
-    fullName: 'New Employee',
+    fullName: user?.email?.split('@')[0] || 'New Employee',
     employeeId: 'Not assigned yet',
     dateOfJoining: new Date().toISOString().split('T')[0],
     workHours: '9:00 AM - 6:00 PM',
@@ -272,13 +283,18 @@ const OnboardingScreen = () => {
   const handleCompleteOnboarding = async () => {
     try {
       console.log('Completing onboarding...');
+      console.log('User before onboarding completion:', user);
+
       await completeOnboarding();
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'Home' }],
-      });
+
+      console.log('Onboarding completed successfully, navigating to Home...');
+
+      // Use replace instead of reset to ensure proper navigation
+      navigation.replace('Home');
     } catch (error) {
       console.error('Error completing onboarding:', error);
+      // Show an error message to the user
+      addMessage("Sorry, there was an error completing your onboarding. Please try again.", true);
     }
   };
 
@@ -315,10 +331,25 @@ const OnboardingScreen = () => {
     }
   };
 
+  // Safety check for user
+  if (!user) {
+    return (
+      <View style={styles.container}>
+        <StatusBar style="light" />
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Welcome Onboarding</Text>
+        </View>
+        <View style={[styles.messagesContainer, { justifyContent: 'center', alignItems: 'center' }]}>
+          <Text style={{ fontSize: 16, color: '#666' }}>Loading your profile...</Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
-      
+
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Welcome Onboarding</Text>

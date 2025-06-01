@@ -1,5 +1,5 @@
-import React, { createContext, useState, ReactNode, useEffect, useMemo } from 'react';
-import { supabase } from './supabase';
+import React, { createContext, useState, ReactNode, useEffect, useMemo, useCallback } from 'react';
+import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from './supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import { userAPI } from './lib/supabase-api';
@@ -198,7 +198,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   // Update employee details
-  const updateEmployeeDetails = async (details: EmployeeDetails) => {
+  const updateEmployeeDetails = useCallback(async (details: EmployeeDetails) => {
     if (!user) return;
 
     try {
@@ -226,10 +226,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       console.error('Error updating employee details:', err);
       throw err;
     }
-  };
+  }, [user]);
 
   // Update user preferences
-  const updateUserPreferences = async (preferences: UserPreferences) => {
+  const updateUserPreferences = useCallback(async (preferences: UserPreferences) => {
     if (!user) return;
 
     try {
@@ -261,19 +261,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       console.error('Error updating user preferences:', err);
       throw err;
     }
-  };
+  }, [user]);
 
   // Mark onboarding as complete
-  const completeOnboarding = async () => {
-    if (!user) return;
+  const completeOnboarding = useCallback(async () => {
+    if (!user) {
+      console.error('Cannot complete onboarding: no user found');
+      throw new Error('No user found');
+    }
 
     try {
       console.log('Completing onboarding for user:', user.id);
 
-      // Update user record in database
-      await userAPI.updateUser(user.id, { is_first_time_user: false });
-
-      // Update local state
+      // Update local state first to ensure immediate UI update
       const updatedUser = {
         ...user,
         isFirstTimeUser: false,
@@ -283,16 +283,39 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
       // Store onboarding completion in local storage
       await storage.setItem(`onboarded-${user.id}`, 'true');
+
+      // Try to update user record in database (non-blocking)
+      try {
+        await userAPI.updateUser(user.id, { is_first_time_user: false });
+        console.log('Database updated successfully');
+      } catch (dbError) {
+        console.warn('Failed to update database, but onboarding marked as complete locally:', dbError);
+        // Don't throw here as the local state is already updated
+      }
+
+      console.log('Onboarding completed successfully');
     } catch (err) {
       console.error('Error completing onboarding:', err);
       throw err;
     }
-  };
+  }, [user]);
 
   // signIn uses Supabase authentication and retrieves user data from database
-  const signIn = async (email: string, password: string) => {
+  const signIn = useCallback(async (email: string, password: string) => {
     try {
       setLoading(true);
+      console.log('Starting sign in process...');
+      console.log('SignIn: Supabase configuration check:', {
+        hasUrl: !!SUPABASE_URL,
+        hasKey: !!SUPABASE_ANON_KEY,
+        supabaseClient: !!supabase
+      });
+
+      // Validate Supabase configuration
+      if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+        console.error('SignIn: Missing Supabase configuration');
+        return { error: new Error('Authentication service is not properly configured. Please check your environment variables.') };
+      }
 
       // Validate input
       const emailValidation = validationService.validateEmail(email);
@@ -318,7 +341,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         console.log('Attempting to sign in with:', sanitizedEmail);
       }
 
+      // Test Supabase connection first
+      try {
+        console.log('Testing Supabase connection...');
+        const connectionTest = await supabase.auth.getSession();
+        console.log('Supabase connection test result:', !!connectionTest);
+      } catch (connectionError) {
+        console.error('Supabase connection test failed:', connectionError);
+        return { error: new Error('Unable to connect to authentication service. Please check your internet connection.') };
+      }
+
       // Authenticate with Supabase
+      console.log('Attempting authentication with Supabase...');
       const { data, error } = await supabase.auth.signInWithPassword({
         email: sanitizedEmail,
         password
@@ -381,9 +415,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const signOut = async () => {
+  const signOut = useCallback(async () => {
     try {
       setLoading(true);
       console.log('Signing out user');
@@ -398,14 +432,37 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   // Sync auth state on mount
   useEffect(() => {
     const checkSession = async () => {
       try {
-        // Check Supabase session
-        const { data, error } = await supabase.auth.getSession();
+        console.log('AuthContext: Starting session check...');
+        console.log('AuthContext: Supabase URL:', SUPABASE_URL);
+        console.log('AuthContext: Environment check:', {
+          hasUrl: !!SUPABASE_URL,
+          hasKey: !!SUPABASE_ANON_KEY,
+          urlLength: SUPABASE_URL?.length,
+          keyLength: SUPABASE_ANON_KEY?.length
+        });
+
+        // Validate Supabase configuration
+        if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+          console.error('AuthContext: Missing Supabase configuration');
+          setLoading(false);
+          return;
+        }
+
+        // Add a timeout to prevent hanging
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Session check timeout')), 10000);
+        });
+
+        const sessionPromise = supabase.auth.getSession();
+
+        // Race between session check and timeout
+        const { data, error } = await Promise.race([sessionPromise, timeoutPromise]) as any;
 
         if (error) {
           console.error('Session retrieval error:', error.message);
@@ -414,11 +471,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         }
 
         const session = data.session;
+        console.log('AuthContext: Session check result:', !!session);
+
         if (session?.user) {
+          console.log('AuthContext: Found existing session for user:', session.user.email);
           // Fetch complete user data from database
           const userData = await fetchUserData(session.user.id);
 
           if (userData) {
+            console.log('AuthContext: User data fetched successfully');
             setUser(userData);
           } else {
             console.log('Could not fetch user data from database, creating minimal user object');
@@ -432,15 +493,27 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
               isFirstTimeUser: true,
             });
           }
+        } else {
+          console.log('AuthContext: No existing session found');
         }
       } catch (err) {
         console.error('Unexpected error checking session:', err);
+        if (err instanceof Error) {
+          console.error('Error details:', err.message, err.stack);
+        }
       } finally {
+        console.log('AuthContext: Setting loading to false');
         setLoading(false);
       }
     };
 
     checkSession();
+
+    // Fallback timeout to ensure loading state is resolved
+    const fallbackTimeout = setTimeout(() => {
+      console.log('AuthContext: Fallback timeout - forcing loading to false');
+      setLoading(false);
+    }, 10000); // 10 second fallback
 
     const { data: listener } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log('Auth state changed:', { event, loggedIn: !!session });
@@ -471,8 +544,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
       setLoading(false);
     });
-    
+
     return () => {
+      clearTimeout(fallbackTimeout);
       listener.subscription.unsubscribe();
     };
   }, []);

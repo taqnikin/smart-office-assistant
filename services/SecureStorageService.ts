@@ -1,10 +1,19 @@
 // Smart Office Assistant - Secure Storage Service
 // Provides encrypted storage for sensitive data like sessions and tokens
 
-import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import { configService } from './ConfigService';
+
+// Conditional import for expo-secure-store to prevent web bundling issues
+let SecureStore: any = null;
+if (Platform.OS !== 'web') {
+  try {
+    SecureStore = require('expo-secure-store');
+  } catch (error) {
+    console.warn('expo-secure-store not available:', error);
+  }
+}
 
 interface StorageOptions {
   requireAuthentication?: boolean;
@@ -45,6 +54,9 @@ class SecureStorageService {
         localStorage.setItem(`secure_${key}`, encrypted);
       } else {
         // For native platforms, use Expo SecureStore
+        if (!SecureStore) {
+          throw new Error('SecureStore is not available on this platform');
+        }
         await SecureStore.setItemAsync(key, value, {
           requireAuthentication: options?.requireAuthentication || false,
           accessGroup: options?.accessGroup,
@@ -66,6 +78,10 @@ class SecureStorageService {
         return this.simpleDecrypt(encrypted);
       } else {
         // For native platforms, use Expo SecureStore
+        if (!SecureStore) {
+          console.error('SecureStore is not available on this platform');
+          return null;
+        }
         return await SecureStore.getItemAsync(key, {
           requireAuthentication: options?.requireAuthentication || false,
           accessGroup: options?.accessGroup,
@@ -83,6 +99,10 @@ class SecureStorageService {
       if (Platform.OS === 'web') {
         localStorage.removeItem(`secure_${key}`);
       } else {
+        if (!SecureStore) {
+          console.error('SecureStore is not available on this platform');
+          return;
+        }
         await SecureStore.deleteItemAsync(key, {
           accessGroup: options?.accessGroup,
           keychainService: options?.keychainService || 'smart-office-assistant',
@@ -313,6 +333,9 @@ class SecureStorageService {
       if (Platform.OS === 'web') {
         return typeof Storage !== 'undefined';
       } else {
+        if (!SecureStore) {
+          return false;
+        }
         return await SecureStore.isAvailableAsync();
       }
     } catch (error) {

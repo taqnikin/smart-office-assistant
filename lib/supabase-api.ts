@@ -11,6 +11,7 @@ export interface User {
   is_first_time_user: boolean;
   created_at: string;
   updated_at: string;
+  deleted: boolean;
 }
 
 export interface EmployeeDetails {
@@ -199,6 +200,17 @@ export const userAPI = {
       .select()
       .single();
 
+    if (error) throw error;
+    return data;
+  },
+
+  async softDeleteUser(id: string): Promise<User> {
+    const { data, error } = await supabase
+      .from('users')
+      .update({ deleted: true })
+      .eq('id', id)
+      .select()
+      .single();
     if (error) throw error;
     return data;
   }
@@ -423,8 +435,8 @@ export const chatAPI = {
 
 // Admin APIs
 export const adminAPI = {
-  async getAllUsers(): Promise<User[]> {
-    const { data, error } = await supabase
+  async getAllUsers(includeDeleted = false): Promise<User[]> {
+    const query = supabase
       .from('users')
       .select(`
         *,
@@ -432,8 +444,146 @@ export const adminAPI = {
       `)
       .order('created_at', { ascending: false });
 
+    if (!includeDeleted) {
+      query.eq('deleted', false);
+    }
+
+    const { data, error } = await query;
     if (error) throw error;
     return data;
+  },
+
+  async getUserById(id: string): Promise<User | null> {
+    const { data, error } = await supabase
+      .from('users')
+      .select(`
+        *,
+        employee_details (*)
+      `)
+      .eq('id', id)
+      .single();
+
+    if (error && error.code !== 'PGRST116') throw error;
+    return data;
+  },
+
+  async createUser(userData: {
+    email: string;
+    password: string;
+    role: 'user' | 'admin';
+    employeeDetails: Omit<EmployeeDetails, 'id' | 'user_id' | 'created_at' | 'updated_at'>;
+  }): Promise<{ user: User; employeeDetails: EmployeeDetails }> {
+    // Create user in Supabase Auth
+    const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+      email: userData.email,
+      password: userData.password,
+      email_confirm: true, // Auto-confirm email for admin-created users
+      user_metadata: {
+        role: userData.role,
+        full_name: userData.employeeDetails.full_name
+      }
+    });
+
+    if (authError) throw authError;
+    if (!authData.user) throw new Error('Failed to create user');
+
+    try {
+      // Create user record in database
+      const { data: userRecord, error: userError } = await supabase
+        .from('users')
+        .insert({
+          id: authData.user.id,
+          email: userData.email,
+          role: userData.role,
+          is_first_time_user: true,
+          deleted: false
+        })
+        .select()
+        .single();
+
+      if (userError) throw userError;
+
+      // Create employee details
+      const { data: employeeRecord, error: employeeError } = await supabase
+        .from('employee_details')
+        .insert({
+          user_id: authData.user.id,
+          ...userData.employeeDetails
+        })
+        .select()
+        .single();
+
+      if (employeeError) throw employeeError;
+
+      return {
+        user: userRecord,
+        employeeDetails: employeeRecord
+      };
+    } catch (error) {
+      // Cleanup: delete auth user if database operations failed
+      await supabase.auth.admin.deleteUser(authData.user.id);
+      throw error;
+    }
+  },
+
+  async updateUser(id: string, updates: {
+    email?: string;
+    role?: 'user' | 'admin';
+    employeeDetails?: Partial<Omit<EmployeeDetails, 'id' | 'user_id' | 'created_at' | 'updated_at'>>;
+  }): Promise<{ user: User; employeeDetails?: EmployeeDetails }> {
+    const results: any = {};
+
+    // Update user record
+    if (updates.email || updates.role !== undefined) {
+      const userUpdates: any = {};
+      if (updates.email) userUpdates.email = updates.email;
+      if (updates.role !== undefined) userUpdates.role = updates.role;
+
+      const { data: userRecord, error: userError } = await supabase
+        .from('users')
+        .update(userUpdates)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (userError) throw userError;
+      results.user = userRecord;
+
+      // Update auth user email if changed
+      if (updates.email) {
+        const { error: authError } = await supabase.auth.admin.updateUserById(id, {
+          email: updates.email
+        });
+        if (authError) throw authError;
+      }
+    }
+
+    // Update employee details
+    if (updates.employeeDetails) {
+      const { data: employeeRecord, error: employeeError } = await supabase
+        .from('employee_details')
+        .update(updates.employeeDetails)
+        .eq('user_id', id)
+        .select()
+        .single();
+
+      if (employeeError) throw employeeError;
+      results.employeeDetails = employeeRecord;
+    }
+
+    // If no user record was updated, fetch current user
+    if (!results.user) {
+      const { data: userRecord, error: userError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', id)
+        .single();
+
+      if (userError) throw userError;
+      results.user = userRecord;
+    }
+
+    return results;
   },
 
   async getDailyAttendanceSummary(date?: string): Promise<any> {
@@ -466,6 +616,164 @@ export const adminAPI = {
       .eq('setting_key', key)
       .select()
       .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  async softDeleteUser(id: string): Promise<User> {
+    const { data, error } = await supabase
+      .from('users')
+      .update({ deleted: true })
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
+
+  async restoreUser(id: string): Promise<User> {
+    const { data, error } = await supabase
+      .from('users')
+      .update({ deleted: false })
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  },
+
+  async permanentDeleteUser(id: string): Promise<void> {
+    // Delete from auth first
+    const { error: authError } = await supabase.auth.admin.deleteUser(id);
+    if (authError) throw authError;
+
+    // Database records will be cascade deleted due to foreign key constraints
+  },
+
+  async resetUserPassword(id: string, newPassword: string): Promise<void> {
+    const { error } = await supabase.auth.admin.updateUserById(id, {
+      password: newPassword
+    });
+    if (error) throw error;
+  },
+
+  async searchUsers(query: string, filters?: {
+    role?: 'user' | 'admin';
+    department?: string;
+    workMode?: 'in-office' | 'wfh' | 'hybrid';
+    includeDeleted?: boolean;
+  }): Promise<User[]> {
+    let dbQuery = supabase
+      .from('users')
+      .select(`
+        *,
+        employee_details (*)
+      `);
+
+    // Apply filters
+    if (!filters?.includeDeleted) {
+      dbQuery = dbQuery.eq('deleted', false);
+    }
+
+    if (filters?.role) {
+      dbQuery = dbQuery.eq('role', filters.role);
+    }
+
+    // Text search across email and employee details
+    if (query.trim()) {
+      dbQuery = dbQuery.or(`
+        email.ilike.%${query}%,
+        employee_details.full_name.ilike.%${query}%,
+        employee_details.employee_id.ilike.%${query}%,
+        employee_details.department.ilike.%${query}%,
+        employee_details.position.ilike.%${query}%
+      `);
+    }
+
+    const { data, error } = await dbQuery.order('created_at', { ascending: false });
+    if (error) throw error;
+
+    // Apply additional filters that require post-processing
+    let filteredData = data;
+
+    if (filters?.department) {
+      filteredData = filteredData.filter(user =>
+        user.employee_details?.some((emp: any) =>
+          emp.department?.toLowerCase().includes(filters.department!.toLowerCase())
+        )
+      );
+    }
+
+    if (filters?.workMode) {
+      filteredData = filteredData.filter(user =>
+        user.employee_details?.some((emp: any) => emp.work_mode === filters.workMode)
+      );
+    }
+
+    return filteredData;
+  },
+
+  async getUserStats(): Promise<{
+    totalUsers: number;
+    activeUsers: number;
+    deletedUsers: number;
+    adminUsers: number;
+    usersByRole: Record<string, number>;
+    usersByDepartment: Record<string, number>;
+    usersByWorkMode: Record<string, number>;
+  }> {
+    const { data: allUsers, error } = await supabase
+      .from('users')
+      .select(`
+        *,
+        employee_details (*)
+      `);
+
+    if (error) throw error;
+
+    const stats = {
+      totalUsers: allUsers.length,
+      activeUsers: allUsers.filter(u => !u.deleted).length,
+      deletedUsers: allUsers.filter(u => u.deleted).length,
+      adminUsers: allUsers.filter(u => u.role === 'admin' && !u.deleted).length,
+      usersByRole: {} as Record<string, number>,
+      usersByDepartment: {} as Record<string, number>,
+      usersByWorkMode: {} as Record<string, number>
+    };
+
+    // Calculate role distribution
+    allUsers.forEach(user => {
+      if (!user.deleted) {
+        stats.usersByRole[user.role] = (stats.usersByRole[user.role] || 0) + 1;
+      }
+    });
+
+    // Calculate department and work mode distribution
+    allUsers.forEach(user => {
+      if (!user.deleted && user.employee_details?.length > 0) {
+        const emp = user.employee_details[0];
+        if (emp.department) {
+          stats.usersByDepartment[emp.department] = (stats.usersByDepartment[emp.department] || 0) + 1;
+        }
+        if (emp.work_mode) {
+          stats.usersByWorkMode[emp.work_mode] = (stats.usersByWorkMode[emp.work_mode] || 0) + 1;
+        }
+      }
+    });
+
+    return stats;
+  },
+
+  async bulkUpdateUsers(userIds: string[], updates: {
+    role?: 'user' | 'admin';
+    deleted?: boolean;
+  }): Promise<User[]> {
+    const { data, error } = await supabase
+      .from('users')
+      .update(updates)
+      .in('id', userIds)
+      .select();
 
     if (error) throw error;
     return data;
