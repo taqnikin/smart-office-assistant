@@ -188,8 +188,21 @@ export default function HomeScreen() {
               </TouchableOpacity>
             )}
             
+            {/* QR Code Demo Quick Access Button */}
+            <TouchableOpacity
+              style={styles.quickAccessItem}
+              onPress={() => {
+                navigation.navigate('QRCodeDemo');
+              }}
+            >
+              <View style={[styles.iconCircle, { backgroundColor: '#5856D6' }]}>
+                <Ionicons name="qr-code" size={24} color="#FFFFFF" />
+              </View>
+              <Text style={styles.quickAccessText}>QR Demo</Text>
+            </TouchableOpacity>
+
             {/* Voice Assistant Quick Access Button */}
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.quickAccessItem}
               onPress={() => {
                 navigation.navigate('Chatbot');
@@ -207,8 +220,8 @@ export default function HomeScreen() {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Today's Meetings</Text>
-            <TouchableOpacity onPress={() => navigation.navigate('BookRoom')}>
-              <Text style={styles.viewAllText}>View All</Text>
+            <TouchableOpacity onPress={() => navigation.navigate('BookingManagement')}>
+              <Text style={styles.viewAllText}>Manage Bookings</Text>
             </TouchableOpacity>
           </View>
           

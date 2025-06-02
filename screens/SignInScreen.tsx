@@ -1,4 +1,4 @@
-import React, { useState, useContext, useCallback } from 'react';
+import React, { useState, useContext } from 'react';
 import {
   View,
   Text,
@@ -11,25 +11,24 @@ import {
   ScrollView
 } from 'react-native';
 import { AuthContext } from '../AuthContext';
-import { toast } from 'sonner-native';
 import { Ionicons } from '@expo/vector-icons';
 import { validationService } from '../services/ValidationService';
+import { useAuthNotifications, useErrorNotifications } from '../hooks/useNotifications';
 
 export default function SignInScreen() {
   const auth = useContext(AuthContext);
   const { loading: authLoading } = auth;
   const signIn = auth.signIn;
+  const { notifySignInSuccess, notifySignInError } = useAuthNotifications();
+  const { notifyValidationError } = useErrorNotifications();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
-  // Debug logging to check auth loading state
-  React.useEffect(() => {
-    console.log('SignInScreen - authLoading:', authLoading);
-    console.log('SignInScreen - signIn function available:', typeof signIn === 'function');
-  }, [authLoading, signIn]);
+
+
 
   const handleSignIn = async () => {
     // Reset any previous error
@@ -40,20 +39,20 @@ export default function SignInScreen() {
     if (!emailValidation.isValid) {
       const errorMsg = emailValidation.errors[0];
       setErrorMessage(errorMsg);
-      toast.error(errorMsg);
+      notifyValidationError('Email', errorMsg);
       return;
     }
 
     // Validate password
     if (!password) {
       setErrorMessage('Password is required');
-      toast.error('Password is required');
+      notifyValidationError('Password', 'Password is required');
       return;
     }
 
     if (password.length < 6) {
       setErrorMessage('Password must be at least 6 characters');
-      toast.error('Password must be at least 6 characters');
+      notifyValidationError('Password', 'Password must be at least 6 characters');
       return;
     }
 
@@ -62,43 +61,29 @@ export default function SignInScreen() {
       
       // Validate signIn function exists
       if (typeof signIn !== 'function') {
-        console.error('SignIn function is not available yet');
         setErrorMessage('Authentication is initializing. Please try again in a moment.');
-        toast.error('Authentication is initializing. Please try again.');
+        notifySignInError('Authentication is initializing. Please try again.');
         return;
       }
-      
+
       const { error } = await signIn(email.trim(), password);
-      
+
       if (error) {
-        console.error('Sign in error:', error.message);
         setErrorMessage(error.message || 'Invalid login credentials');
-        toast.error(error.message || 'Invalid login credentials');
+        notifySignInError(error.message || 'Invalid login credentials');
       } else {
         setErrorMessage('');
-        toast.success('Signed in successfully');
+        notifySignInSuccess();
       }
     } catch (err) {
-      console.error('Unexpected error:', err);
       setErrorMessage('An unexpected error occurred');
-      toast.error('An unexpected error occurred');
+      notifySignInError('An unexpected error occurred');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const fillTestCredentials = useCallback((type: 'user' | 'admin') => {
-    // Clear any previous error when filling credentials
-    setErrorMessage('');
-    
-    if (type === 'user') {
-      setEmail('user1@example.com');
-      setPassword('user123');
-    } else {
-      setEmail('admin1@example.com');
-      setPassword('admin123');
-    }
-  }, []);
+
 
   const isLoading = isSubmitting; // Temporarily remove authLoading dependency for debugging
 
@@ -115,19 +100,7 @@ export default function SignInScreen() {
             <Text style={styles.title}>SmartOffice Sign In</Text>
             <Text style={styles.subtitle}>Use your ID and password to sign in</Text>
 
-            {/* Debug info */}
-            {__DEV__ && (
-              <View style={styles.debugContainer}>
-                <Text style={styles.debugText}>
-                  Auth Loading: {authLoading ? 'Yes' : 'No'} |
-                  Is Submitting: {isSubmitting ? 'Yes' : 'No'} |
-                  Inputs Enabled: {!isLoading ? 'Yes' : 'No'}
-                </Text>
-                <Text style={styles.debugText}>
-                  Email: "{email}" | Password: "{password ? '***' : ''}"
-                </Text>
-              </View>
-            )}
+
             
             {errorMessage ? (
               <View style={styles.errorContainer}>
@@ -143,13 +116,10 @@ export default function SignInScreen() {
                 autoCapitalize="none"
                 value={email}
                 onChangeText={(text) => {
-                  console.log('Email input changed:', text);
                   setEmail(text);
                   // Clear error when typing
                   if (errorMessage) setErrorMessage('');
                 }}
-                onFocus={() => console.log('Email input focused')}
-                onBlur={() => console.log('Email input blurred')}
                 keyboardType="email-address"
                 editable={!isLoading}
                 autoComplete="email"
@@ -167,13 +137,10 @@ export default function SignInScreen() {
                 secureTextEntry
                 value={password}
                 onChangeText={(text) => {
-                  console.log('Password input changed:', text);
                   setPassword(text);
                   // Clear error when typing
                   if (errorMessage) setErrorMessage('');
                 }}
-                onFocus={() => console.log('Password input focused')}
-                onBlur={() => console.log('Password input blurred')}
                 editable={!isLoading}
                 autoComplete="password"
                 textContentType="password"
@@ -182,29 +149,7 @@ export default function SignInScreen() {
               />
             </View>
 
-            <View style={styles.credentialsContainer}>
-              <Text style={styles.noteTitle}>Test Credentials:</Text>
-              <View style={styles.credentialButtons}>
-                <TouchableOpacity 
-                  style={styles.credentialButton} 
-                  onPress={() => fillTestCredentials('user')}
-                  disabled={isLoading}
-                  testID="fill-user-button"
-                >
-                  <Text style={styles.credentialButtonText}>Fill User</Text>
-                </TouchableOpacity>
-                <TouchableOpacity 
-                  style={styles.credentialButton} 
-                  onPress={() => fillTestCredentials('admin')}
-                  disabled={isLoading}
-                  testID="fill-admin-button"
-                >
-                  <Text style={styles.credentialButtonText}>Fill Admin</Text>
-                </TouchableOpacity>
-              </View>
-              <Text style={styles.note}>User: user1@example.com / user123</Text>
-              <Text style={styles.note}>Admin: admin1@example.com / admin123</Text>
-            </View>
+
             
             <TouchableOpacity 
               style={[styles.button, isLoading && styles.buttonDisabled]} 
@@ -315,43 +260,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     backgroundColor: '#f9f9f9'
   },
-  credentialsContainer: {
-    marginBottom: 24,
-    padding: 16,
-    backgroundColor: '#f0f7ff',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#e0e9ff'
-  },
-  credentialButtons: {
-    flexDirection: 'row',
-    marginVertical: 12,
-    gap: 12
-  },
-  credentialButton: {
-    backgroundColor: '#e0e9ff',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 6,
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  credentialButtonText: {
-    color: '#4A80F0',
-    fontWeight: '500',
-    fontSize: 14
-  },
-  noteTitle: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    marginBottom: 4,
-    color: '#4A80F0'
-  },
-  note: {
-    fontSize: 14,
-    color: '#666',
-    lineHeight: 20
-  },
+
   button: {
     backgroundColor: '#4A80F0',
     paddingVertical: 14,
@@ -412,18 +321,5 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#555',
     marginLeft: 8
-  },
-  debugContainer: {
-    backgroundColor: '#fff3cd',
-    borderRadius: 4,
-    padding: 8,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#ffeaa7'
-  },
-  debugText: {
-    fontSize: 12,
-    color: '#856404',
-    textAlign: 'center'
   }
 });

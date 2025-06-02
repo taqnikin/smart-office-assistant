@@ -23,6 +23,10 @@ import { toast } from 'sonner-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../App';
+import { ChatbotWebhookTest } from '../components/ChatbotWebhookTest';
+import { configService } from '../services/ConfigService';
+import { voiceInteractionService } from '../services/VoiceInteractionService';
+import { AuthContext } from '../AuthContext';
 
 // Message type definition
 interface ChatMessage {
@@ -36,6 +40,7 @@ type ChatbotScreenNavigationProp = NativeStackNavigationProp<RootStackParamList,
 
 const ChatbotScreen = () => {
   const navigation = useNavigation<ChatbotScreenNavigationProp>();
+  const { user } = useContext(AuthContext);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: '1',
@@ -84,39 +89,75 @@ const ChatbotScreen = () => {
     }
   }, [messages]);
 
-  // Simulate voice recognition and handle user commands
-  const startListening = () => {
-    if (isListening || isProcessing) return;
-    
+  // Voice recognition with webhook integration
+  const startListening = async () => {
+    if (isListening || isProcessing || !user) return;
+
     setIsListening(true);
+    voiceInteractionService.setListeningState(true);
     toast.info('Listening...');
-    
-    // Simulate recording for 3 seconds
-    setTimeout(() => {
+
+    try {
+      // Use the voice interaction service for webhook integration
+      const result = await voiceInteractionService.simulateVoiceRecognition(
+        user.id,
+        user.isFirstTimeUser || false,
+        user.employeeDetails,
+        3000 // 3 seconds listening duration
+      );
+
+      if (result.success && result.response?.message) {
+        // Add user's voice command to chat
+        if (result.response.user_input) {
+          addMessage(result.response.user_input, false);
+        }
+
+        // Add webhook response to chat
+        addMessage(result.response.message, true);
+
+        // Handle any quick actions from webhook response
+        if (result.response.quick_actions && result.response.quick_actions.length > 0) {
+          // Quick actions will be displayed in the UI
+          console.log('Voice interaction quick actions:', result.response.quick_actions);
+        }
+
+        toast.success('Voice command processed!');
+      } else {
+        // Fallback to local processing if webhook fails
+        console.warn('Webhook failed, using local processing');
+        await handleLocalVoiceProcessing();
+      }
+    } catch (error) {
+      console.error('Voice interaction error:', error);
+      toast.error('Voice recognition failed');
+      await handleLocalVoiceProcessing();
+    } finally {
       setIsListening(false);
-      setIsProcessing(true);
-      
-      // Simulate random user command
-      const commands = [
-        "Book a meeting room for tomorrow at 2 PM",
-        "Check parking availability",
-        "Mark my attendance as in-office today",
-        "I want to work from home today",
-        "Show me available rooms on floor 3",
-      ];
-      
-      const randomCommand = commands[Math.floor(Math.random() * commands.length)];
-      
-      // Add user message
-      addMessage(randomCommand, false);
-      
-      // Process the command after a short delay
-      setTimeout(() => {
-        processCommand(randomCommand);
-        setIsProcessing(false);
-      }, 1500);
-      
-    }, 3000);
+      setIsProcessing(false);
+      voiceInteractionService.setListeningState(false);
+      voiceInteractionService.setProcessingState(false);
+    }
+  };
+
+  // Fallback local voice processing (existing logic)
+  const handleLocalVoiceProcessing = async () => {
+    const commands = [
+      "Book a meeting room for tomorrow at 2 PM",
+      "Check parking availability",
+      "Mark my attendance as in-office today",
+      "I want to work from home today",
+      "Show me available rooms on floor 3",
+    ];
+
+    const randomCommand = commands[Math.floor(Math.random() * commands.length)];
+
+    // Add user message
+    addMessage(randomCommand, false);
+
+    // Process the command after a short delay
+    setTimeout(() => {
+      processCommand(randomCommand);
+    }, 1500);
   };
 
   const addMessage = (text: string, isBot: boolean) => {
@@ -188,10 +229,38 @@ const ChatbotScreen = () => {
     }
   };
 
-  // Simulate AI response with quick actions
-  const simulateQuickAction = (action: string) => {
+  // Handle quick actions with webhook integration
+  const simulateQuickAction = async (action: string) => {
+    if (!user) return;
+
     addMessage(action, false);
-    
+
+    try {
+      // Send quick action to webhook
+      const result = await voiceInteractionService.handleTextResponse(
+        user.id,
+        user.isFirstTimeUser || false,
+        user.employeeDetails,
+        action,
+        true // isQuickAction = true
+      );
+
+      if (result.success && result.response?.message) {
+        // Add webhook response to chat
+        addMessage(result.response.message, true);
+        toast.success("Action completed!");
+      } else {
+        // Fallback to local processing
+        handleLocalQuickAction(action);
+      }
+    } catch (error) {
+      console.error('Quick action webhook error:', error);
+      handleLocalQuickAction(action);
+    }
+  };
+
+  // Fallback local quick action processing
+  const handleLocalQuickAction = (action: string) => {
     setTimeout(() => {
       if (action.includes("Yes, book")) {
         addMessage("Great! I've booked room 301 for your meeting. The confirmation has been sent to your email.", true);
@@ -209,16 +278,19 @@ const ChatbotScreen = () => {
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
-      
+
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.backButton}
           onPress={() => navigation.navigate('Home')}>
           <Ionicons name="chevron-back" size={24} color="white" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Voice Assistant</Text>
       </View>
+
+      {/* Webhook Test Component - Only show in development */}
+      <ChatbotWebhookTest visible={configService.isDevelopment} />
       
       {/* Chat Messages */}
       <ScrollView 

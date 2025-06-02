@@ -29,9 +29,28 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
-.env*.local
+# Environment files
 .env
+.env.local
+.env.production
+.env.staging
+.env*.local
+
+# Production builds
+dist/
+build/
+web-build/
+
+# Development files (exclude from production)
+__tests__/
+coverage/
+*.test.ts
+*.test.tsx
+test-*.js
+debug-*.js
+create-*.js
+check-*.js
+fix-*.js
 
 # Security - Never commit these files
 *.key
@@ -41,6 +60,12 @@ yarn-error.*
 *.mobileprovision
 secrets/
 config/secrets.json
+
+# Development documentation
+test-app-functionality.md
+TESTING_SUMMARY.md
+debug*.html
+test-app.html
 
 # typescript
 *.tsbuildinfo

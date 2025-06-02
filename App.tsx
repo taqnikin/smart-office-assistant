@@ -1,8 +1,9 @@
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import React, { useContext, useEffect } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
 import { StyleSheet, View, ActivityIndicator, Text } from 'react-native';
 import { SafeAreaProvider } from "react-native-safe-area-context"
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Toaster } from 'sonner-native';
 import HomeScreen from './screens/HomeScreen';
 import BookRoomScreen from './screens/BookRoomScreen';
@@ -14,8 +15,14 @@ import ProfileScreen from './screens/ProfileScreen';
 import OnboardingScreen from './screens/OnboardingScreen';
 import { AuthProvider, AuthContext } from './AuthContext';
 import { NotificationProvider } from './contexts/NotificationContext';
+import { AppNotificationProvider } from './contexts/AppNotificationContext';
+import { NotificationManager } from './components/NotificationManager';
 import SignInScreen from './screens/SignInScreen';
 import NotificationSettingsScreen from './screens/NotificationSettingsScreen';
+import BookingManagementScreen from './screens/BookingManagementScreen';
+import QRCodeDemoScreen from './screens/QRCodeDemoScreen';
+import QRScannerScreen from './screens/QRScannerScreen';
+import QRCodeDisplayScreen from './screens/QRCodeDisplayScreen';
 import ErrorBoundary, { ScreenErrorBoundary } from './components/ErrorBoundary';
 import { errorLogger } from './services/ErrorLoggingService';
 
@@ -31,6 +38,13 @@ export type RootStackParamList = {
   Onboarding: undefined;
   SignIn: undefined;
   NotificationSettings: undefined;
+  BookingManagement: undefined;
+  QRCodeDemo: undefined;
+  QRScanner: {
+    fromDemo?: boolean;
+    demoMode?: boolean;
+  };
+  QRCodeDisplay: undefined;
 };
 
 // Auth stack for unauthenticated users
@@ -54,8 +68,17 @@ const AppStack = createNativeStackNavigator<RootStackParamList>();
 function AppStackNavigator() {
   const { user } = useContext(AuthContext);
 
+  console.log('🧭 AppStackNavigator: Rendering with user:', {
+    hasUser: !!user,
+    userId: user?.id,
+    email: user?.email,
+    isFirstTimeUser: user?.isFirstTimeUser,
+    role: user?.role
+  });
+
   // Added safety check
   if (!user) {
+    console.log('🚫 AppStackNavigator: No user found, returning AuthStackNavigator');
     return <AuthStackNavigator />;
   }
 
@@ -114,10 +137,41 @@ function AppStackNavigator() {
     </ScreenErrorBoundary>
   );
 
+  const WrappedBookingManagementScreen = () => (
+    <ScreenErrorBoundary>
+      <BookingManagementScreen />
+    </ScreenErrorBoundary>
+  );
+
+  const WrappedQRCodeDemoScreen = () => (
+    <ScreenErrorBoundary>
+      <QRCodeDemoScreen />
+    </ScreenErrorBoundary>
+  );
+
+  const WrappedQRScannerScreen = () => (
+    <ScreenErrorBoundary>
+      <QRScannerScreen />
+    </ScreenErrorBoundary>
+  );
+
+  const WrappedQRCodeDisplayScreen = () => (
+    <ScreenErrorBoundary>
+      <QRCodeDisplayScreen />
+    </ScreenErrorBoundary>
+  );
+
+  const initialRoute = user?.isFirstTimeUser ? "Onboarding" : "Home";
+  console.log('🎯 AppStackNavigator: Initial route determined:', {
+    initialRoute,
+    isFirstTimeUser: user?.isFirstTimeUser,
+    userEmail: user?.email
+  });
+
   return (
     <AppStack.Navigator
       screenOptions={{ headerShown: false, animation: 'slide_from_right', contentStyle: { backgroundColor: '#FFFFFF' } }}
-      initialRouteName={user?.isFirstTimeUser ? "Onboarding" : "Home"}
+      initialRouteName={initialRoute}
     >
       <AppStack.Screen
         name="Onboarding"
@@ -132,12 +186,17 @@ function AppStackNavigator() {
       <AppStack.Screen name="Chatbot" component={WrappedChatbotScreen} />
       <AppStack.Screen name="Profile" component={WrappedProfileScreen} />
       <AppStack.Screen name="NotificationSettings" component={WrappedNotificationSettingsScreen} />
+      <AppStack.Screen name="BookingManagement" component={WrappedBookingManagementScreen} />
+      <AppStack.Screen name="QRCodeDemo" component={WrappedQRCodeDemoScreen} />
+      <AppStack.Screen name="QRScanner" component={WrappedQRScannerScreen} />
+      <AppStack.Screen name="QRCodeDisplay" component={WrappedQRCodeDisplayScreen} />
     </AppStack.Navigator>
   );
 }
 
 function AppContent() {
   const { user, loading } = useContext(AuthContext);
+  const [loadingTimeout, setLoadingTimeout] = useState(false);
 
   // Initialize error logging service
   useEffect(() => {
@@ -152,19 +211,76 @@ function AppContent() {
     initializeErrorLogging();
   }, []);
 
+  // Add loading timeout to prevent infinite loading
+  useEffect(() => {
+    if (loading) {
+      console.log('⏰ AppContent: Starting loading timeout (15s)');
+      const timeout = setTimeout(() => {
+        console.warn('⚠️ AppContent: Loading timeout reached - forcing app to continue');
+        setLoadingTimeout(true);
+      }, 15000); // 15 second timeout
+
+      return () => {
+        clearTimeout(timeout);
+        setLoadingTimeout(false);
+      };
+    }
+  }, [loading]);
+
   // Add some debugging
   useEffect(() => {
-    console.log('Auth state changed:', { user: user ? 'Logged in' : 'Not logged in', loading });
-  }, [user, loading]);
+    console.log('🏠 AppContent: Auth state changed:', {
+      user: user ? 'Logged in' : 'Not logged in',
+      loading,
+      loadingTimeout,
+      userEmail: user?.email,
+      isFirstTimeUser: user?.isFirstTimeUser
+    });
+  }, [user, loading, loadingTimeout]);
 
-  if (loading) {
+  console.log('🏠 AppContent: Rendering with state:', {
+    loading,
+    loadingTimeout,
+    hasUser: !!user,
+    userEmail: user?.email,
+    isFirstTimeUser: user?.isFirstTimeUser
+  });
+
+  // Show loading screen unless timeout is reached
+  if (loading && !loadingTimeout) {
+    console.log('⏳ AppContent: Showing loading screen');
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#4A80F0" />
         <Text style={styles.loadingText}>Loading your workspace...</Text>
+        <Text style={styles.loadingSubText}>
+          This should only take a few seconds
+        </Text>
       </View>
     );
   }
+
+  // If loading timeout is reached, show error message and continue
+  if (loadingTimeout) {
+    console.warn('⚠️ AppContent: Loading timeout - showing fallback UI');
+    return (
+      <View style={styles.loadingContainer}>
+        <Text style={[styles.loadingText, { color: '#FF6B6B' }]}>
+          Loading is taking longer than expected
+        </Text>
+        <Text style={styles.loadingSubText}>
+          Continuing with limited functionality...
+        </Text>
+        <ErrorBoundary>
+          <NavigationContainer>
+            <AuthStackNavigator />
+          </NavigationContainer>
+        </ErrorBoundary>
+      </View>
+    );
+  }
+
+  console.log('🚀 AppContent: Loading complete, rendering navigation');
 
   return (
     <ErrorBoundary>
@@ -177,14 +293,19 @@ function AppContent() {
 
 export default function App() {
   return (
-    <SafeAreaProvider style={styles.container}>
-      <AuthProvider>
-        <NotificationProvider>
-          <Toaster richColors closeButton />
-          <AppContent />
-        </NotificationProvider>
-      </AuthProvider>
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={styles.container}>
+      <SafeAreaProvider style={styles.container}>
+        <AuthProvider>
+          <NotificationProvider>
+            <AppNotificationProvider>
+              <Toaster richColors closeButton />
+              <AppContent />
+              <NotificationManager />
+            </AppNotificationProvider>
+          </NotificationProvider>
+        </AuthProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 
@@ -204,5 +325,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#666',
     textAlign: 'center'
+  },
+  loadingSubText: {
+    marginTop: 8,
+    fontSize: 14,
+    color: '#999',
+    textAlign: 'center',
+    fontStyle: 'italic'
   }
 });

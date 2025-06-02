@@ -24,6 +24,7 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AuthContext, EmployeeDetails } from '../AuthContext';
 import { RootStackParamList } from '../App';
+import { webhookOnboardingService, type OnboardingState } from '../services/WebhookOnboardingService';
 // Removed date-fns import - using native Date methods instead
 
 // Message type definition
@@ -38,21 +39,54 @@ type OnboardingScreenNavigationProp = NativeStackNavigationProp<RootStackParamLi
 
 const OnboardingScreen = () => {
   const navigation = useNavigation<OnboardingScreenNavigationProp>();
-  const { user, completeOnboarding } = useContext(AuthContext);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [onboardingStep, setOnboardingStep] = useState(0);
-  const [isCompleted, setIsCompleted] = useState(false);
+  const { user, completeOnboarding, updateUserPreferences } = useContext(AuthContext);
+  const [onboardingState, setOnboardingState] = useState<OnboardingState>({
+    messages: [],
+    isCompleted: false,
+    quickActions: [],
+    nextSteps: [],
+    currentStep: 0
+  });
+  const [isInitializing, setIsInitializing] = useState(true);
   const scrollViewRef = useRef<ScrollView>(null);
 
-  // Debug logging
+  // Initialize webhook-based onboarding
   useEffect(() => {
-    console.log('OnboardingScreen - User:', user ? 'Logged in' : 'Not logged in');
-    console.log('OnboardingScreen - User details:', {
-      id: user?.id,
-      email: user?.email,
-      isFirstTimeUser: user?.isFirstTimeUser,
-      hasEmployeeDetails: !!user?.employeeDetails
-    });
+    const initializeOnboarding = async () => {
+      if (!user) {
+        console.log('OnboardingScreen: No user available, waiting...');
+        return;
+      }
+
+      console.log('OnboardingScreen: Initializing webhook-based onboarding for user:', user.id);
+      setIsInitializing(true);
+
+      try {
+        // Subscribe to onboarding state changes
+        const unsubscribe = webhookOnboardingService.subscribe((state) => {
+          console.log('OnboardingScreen: Received onboarding state update:', state);
+          setOnboardingState(state);
+        });
+
+        // Initialize onboarding with webhook
+        await webhookOnboardingService.initializeOnboarding(
+          user.id,
+          user.employeeDetails
+        );
+
+        setIsInitializing(false);
+
+        // Cleanup subscription on unmount
+        return () => {
+          unsubscribe();
+        };
+      } catch (error) {
+        console.error('OnboardingScreen: Error initializing onboarding:', error);
+        setIsInitializing(false);
+      }
+    };
+
+    initializeOnboarding();
   }, [user]);
   
   // Animation values
@@ -61,24 +95,20 @@ const OnboardingScreen = () => {
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
-    if (scrollViewRef.current) {
+    if (scrollViewRef.current && onboardingState.messages.length > 0) {
       setTimeout(() => {
         scrollViewRef.current?.scrollToEnd({ animated: true });
       }, 100);
     }
-  }, [messages]);
+  }, [onboardingState.messages]);
 
-  // Access employee details or provide defaults
-  const employeeDetails = user?.employeeDetails || {
-    fullName: user?.email?.split('@')[0] || 'New Employee',
-    employeeId: 'Not assigned yet',
-    dateOfJoining: new Date().toISOString().split('T')[0],
-    workHours: '9:00 AM - 6:00 PM',
-    workMode: 'in-office'
-  } as EmployeeDetails;
+  // Access employee details - if missing, we'll handle it in the flow
+  const employeeDetails = user?.employeeDetails;
+  const hasEmployeeDetails = !!employeeDetails;
 
   // Format date of joining to be more readable
   const formattedJoiningDate = (() => {
+    if (!employeeDetails?.dateOfJoining) return 'Not available';
     try {
       const date = new Date(employeeDetails.dateOfJoining);
       return date.toLocaleDateString('en-US', {
@@ -91,192 +121,32 @@ const OnboardingScreen = () => {
     }
   })();
 
-  // Handle the onboarding conversation flow
+  // Animation effect when onboarding is completed
   useEffect(() => {
-    // Initial welcome message
-    if (onboardingStep === 0) {
-      setTimeout(() => {
-        addMessage(`Hi ${employeeDetails.fullName}! 👋 Welcome to Smart Office! I'm your virtual assistant and I'll be helping you get started.`, true);
-        
-        setTimeout(() => {
-          setOnboardingStep(1);
-        }, 1500);
-      }, 1000);
-    } 
-    // Employee details introduction
-    else if (onboardingStep === 1) {
-      setTimeout(() => {
-        addMessage("Let me share some information about your account:", true);
-        
-        setTimeout(() => {
-          setOnboardingStep(2);
-        }, 1500);
-      }, 1000);
-    } 
-    // Show employee name
-    else if (onboardingStep === 2) {
-      setTimeout(() => {
-        addMessage(`Your full name: **${employeeDetails.fullName}**`, true);
-        
-        setTimeout(() => {
-          setOnboardingStep(3);
-        }, 1500);
-      }, 1000);
-    } 
-    // Show employee ID
-    else if (onboardingStep === 3) {
-      setTimeout(() => {
-        addMessage(`Your employee ID: **${employeeDetails.employeeId}**`, true);
-        
-        setTimeout(() => {
-          setOnboardingStep(4);
-        }, 1500);
-      }, 1000);
-    } 
-    // Show joining date
-    else if (onboardingStep === 4) {
-      setTimeout(() => {
-        addMessage(`Your joining date: **${formattedJoiningDate}**`, true);
-        
-        setTimeout(() => {
-          setOnboardingStep(5);
-        }, 1500);
-      }, 1000);
-    } 
-    // Show work hours
-    else if (onboardingStep === 5) {
-      setTimeout(() => {
-        addMessage(`Your work hours: **${employeeDetails.workHours}**`, true);
-        
-        setTimeout(() => {
-          setOnboardingStep(6);
-        }, 1500);
-      }, 1000);
-    } 
-    // Show work mode
-    else if (onboardingStep === 6) {
-      setTimeout(() => {
-        const workModeText = {
-          'in-office': 'In-office',
-          'wfh': 'Work from Home',
-          'hybrid': 'Hybrid (Mix of office and remote)'
-        }[employeeDetails.workMode];
-        
-        addMessage(`Your work mode: **${workModeText}**`, true);
-        
-        setTimeout(() => {
-          setOnboardingStep(7);
-        }, 1500);
-      }, 1000);
-    } 
-    // Features intro
-    else if (onboardingStep === 7) {
-      setTimeout(() => {
-        addMessage("Now, let me show you what you can do with the Smart Office app:", true);
-        
-        setTimeout(() => {
-          setOnboardingStep(8);
-        }, 1500);
-      }, 1000);
-    } 
-    // Room booking feature
-    else if (onboardingStep === 8) {
-      setTimeout(() => {
-        addMessage("🏢 **Book Meeting Rooms** - You can easily reserve meeting spaces for your team discussions", true);
-        
-        setTimeout(() => {
-          setOnboardingStep(9);
-        }, 1500);
-      }, 1000);
-    } 
-    // Parking feature
-    else if (onboardingStep === 9) {
-      setTimeout(() => {
-        addMessage("🚗 **Reserve Parking** - Find and book available parking spots for your vehicle", true);
-        
-        setTimeout(() => {
-          setOnboardingStep(10);
-        }, 1500);
-      }, 1000);
-    } 
-    // Attendance feature
-    else if (onboardingStep === 10) {
-      setTimeout(() => {
-        addMessage("📝 **Mark Attendance** - Check-in and check-out with flexible work options", true);
-        
-        setTimeout(() => {
-          setOnboardingStep(11);
-        }, 1500);
-      }, 1000);
-    } 
-    // Chat assistance
-    else if (onboardingStep === 11) {
-      setTimeout(() => {
-        addMessage("🤖 **Voice Assistant** - Ask me questions anytime by using the chat feature", true);
-        
-        setTimeout(() => {
-          setOnboardingStep(12);
-        }, 1500);
-      }, 1000);
-    } 
-    // Profile information
-    else if (onboardingStep === 12) {
-      setTimeout(() => {
-        addMessage("👤 **Profile** - View and manage your account details", true);
-        
-        setTimeout(() => {
-          setOnboardingStep(13);
-        }, 1500);
-      }, 1000);
-    } 
-    // Completion message
-    else if (onboardingStep === 13) {
-      setTimeout(() => {
-        addMessage("Do you have any questions before we continue to the app?", true);
-        
-        // Animate button using withTiming (supported by current version)
-        buttonScale.value = withDelay(300, withTiming(1, { duration: 600 }));
+    if (onboardingState.isCompleted) {
+      // Animate button using withTiming
+      buttonScale.value = withDelay(300, withTiming(1, { duration: 600 }));
 
-        // Use React Native Animated for profile card, but disable native driver
-        RNAnimated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 800,
-          useNativeDriver: false, // Changed to false to avoid native driver warning
-        }).start();
-        
-        setIsCompleted(true);
-      }, 1000);
+      // Use React Native Animated for profile card
+      RNAnimated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 800,
+        useNativeDriver: false,
+      }).start();
     }
-  }, [onboardingStep, employeeDetails]);
+  }, [onboardingState.isCompleted]);
 
-  const addMessage = (text: string, isBot: boolean) => {
-    const newMessage: ChatMessage = {
-      id: Date.now().toString(),
-      text,
-      isBot,
-      timestamp: new Date(),
-    };
-    
-    setMessages(prev => [...prev, newMessage]);
-  };
-
-  const handleQuickResponse = (response: string) => {
-    // Add user response to chat
-    addMessage(response, false);
-    
-    // Based on response, show appropriate follow-up
-    if (response === "Yes, I have questions") {
-      setTimeout(() => {
-        addMessage("Feel free to ask me anything once we get to the app. I'll be available through the Voice Assistant icon on the home screen.", true);
-        
-        setTimeout(() => {
-          addMessage("Ready to explore the app now?", true);
-        }, 2000);
-      }, 1000);
-    } else {
-      setTimeout(() => {
-        addMessage("Great! Let's get you started with the app. Click the button below to continue.", true);
-      }, 1000);
+  // Handle quick action responses from webhook
+  const handleQuickAction = async (action: string) => {
+    try {
+      console.log('OnboardingScreen: Handling quick action:', action);
+      await webhookOnboardingService.handleUserResponse(
+        action,
+        user?.id,
+        user?.employeeDetails
+      );
+    } catch (error) {
+      console.error('OnboardingScreen: Error handling quick action:', error);
     }
   };
 
@@ -305,6 +175,7 @@ const OnboardingScreen = () => {
 
   // Get work mode icon
   const getWorkModeIcon = () => {
+    if (!employeeDetails?.workMode) return 'help-outline';
     switch (employeeDetails.workMode) {
       case 'in-office':
         return 'business-outline';
@@ -319,6 +190,7 @@ const OnboardingScreen = () => {
 
   // Format work mode text
   const getWorkModeText = () => {
+    if (!employeeDetails?.workMode) return 'Not specified';
     switch (employeeDetails.workMode) {
       case 'in-office':
         return 'In-office';
@@ -331,8 +203,8 @@ const OnboardingScreen = () => {
     }
   };
 
-  // Safety check for user
-  if (!user) {
+  // Safety check for user and loading state
+  if (!user || isInitializing) {
     return (
       <View style={styles.container}>
         <StatusBar style="light" />
@@ -340,7 +212,9 @@ const OnboardingScreen = () => {
           <Text style={styles.headerTitle}>Welcome Onboarding</Text>
         </View>
         <View style={[styles.messagesContainer, { justifyContent: 'center', alignItems: 'center' }]}>
-          <Text style={{ fontSize: 16, color: '#666' }}>Loading your profile...</Text>
+          <Text style={{ fontSize: 16, color: '#666' }}>
+            {!user ? 'Loading your profile...' : 'Initializing onboarding...'}
+          </Text>
         </View>
       </View>
     );
@@ -360,8 +234,8 @@ const OnboardingScreen = () => {
         style={styles.messagesContainer}
         ref={scrollViewRef}
         contentContainerStyle={styles.messagesContent}>
-        {messages.map(message => (
-          <View 
+        {onboardingState.messages.map(message => (
+          <View
             key={message.id}
             style={[
               styles.messageBubble,
@@ -389,75 +263,69 @@ const OnboardingScreen = () => {
           </View>
         ))}
 
-        {/* Employee Profile Card - Only shown when onboarding is complete */}
-        {isCompleted && (
+        {/* Employee Profile Card - Only shown when onboarding is complete and has employee details */}
+        {onboardingState.isCompleted && hasEmployeeDetails && (
           <View style={[styles.profileCardContainer, { opacity: fadeAnim }]}>
             <View style={styles.profileCard}>
               <View style={styles.profileHeader}>
                 <Text style={styles.profileTitle}>Employee Profile</Text>
               </View>
-              
+
               <View style={styles.profileContent}>
                 <View style={styles.profileRow}>
                   <Ionicons name="person-outline" size={20} color="#4A80F0" />
                   <Text style={styles.profileLabel}>Name:</Text>
                   <Text style={styles.profileValue}>{employeeDetails.fullName}</Text>
                 </View>
-                
+
                 <View style={styles.profileRow}>
                   <Ionicons name="card-outline" size={20} color="#4A80F0" />
                   <Text style={styles.profileLabel}>ID:</Text>
                   <Text style={styles.profileValue}>{employeeDetails.employeeId}</Text>
                 </View>
-                
+
                 <View style={styles.profileRow}>
                   <Ionicons name="calendar-outline" size={20} color="#4A80F0" />
                   <Text style={styles.profileLabel}>Joined:</Text>
                   <Text style={styles.profileValue}>{formattedJoiningDate}</Text>
                 </View>
-                
+
                 <View style={styles.profileRow}>
                   <Ionicons name="time-outline" size={20} color="#4A80F0" />
                   <Text style={styles.profileLabel}>Hours:</Text>
                   <Text style={styles.profileValue}>{employeeDetails.workHours}</Text>
                 </View>
-                
+
                 <View style={styles.profileRow}>
                   <Ionicons name={getWorkModeIcon()} size={20} color="#4A80F0" />
                   <Text style={styles.profileLabel}>Mode:</Text>
                   <Text style={styles.profileValue}>{getWorkModeText()}</Text>
                 </View>
+
+
               </View>
             </View>
           </View>
         )}
       </ScrollView>
-      
-      {/* Quick Response Buttons - Only shown when asking for questions */}
-      {isCompleted && messages.length > 0 && 
-       messages[messages.length-1].isBot && 
-       messages[messages.length-1].text.includes("Do you have any questions") && (
+
+      {/* Quick Action Buttons from Webhook */}
+      {onboardingState.quickActions.length > 0 && (
         <View style={styles.quickActions}>
-          <TouchableOpacity 
-            style={styles.quickActionButton}
-            onPress={() => handleQuickResponse("Yes, I have questions")}>
-            <Text style={styles.quickActionText}>Yes, I have questions</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={[styles.quickActionButton, styles.primaryButton]}
-            onPress={() => handleQuickResponse("No, I'm ready to explore")}>
-            <Text style={styles.quickActionText}>No, I'm ready to explore</Text>
-          </TouchableOpacity>
+          {onboardingState.quickActions.map((action, index) => (
+            <TouchableOpacity
+              key={index}
+              style={[styles.quickActionButton, index === 0 ? styles.primaryButton : null]}
+              onPress={() => handleQuickAction(action)}>
+              <Text style={styles.quickActionText}>{action}</Text>
+            </TouchableOpacity>
+          ))}
         </View>
       )}
       
-      {/* Continue Button - Only shown at the end of onboarding */}
-      {isCompleted && messages.length > 0 && 
-       messages[messages.length-1].isBot && 
-       (messages[messages.length-1].text.includes("Let's get you started") || 
-        messages[messages.length-1].text.includes("Ready to explore")) && (
-        <Animated.View 
+      {/* Continue Button - Only shown when onboarding is completed */}
+      {onboardingState.isCompleted && onboardingState.messages.length > 0 && (
+        <Animated.View
           style={[styles.continueButtonContainer, buttonAnimatedStyle]}>
           <TouchableOpacity
             style={styles.continueButton}
@@ -655,6 +523,43 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '600',
     marginRight: 10,
+  },
+  vehicleSelectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    textAlign: 'center',
+    marginBottom: 15,
+    width: '100%',
+  },
+  vehicleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 25,
+    marginHorizontal: 5,
+    marginVertical: 5,
+    minWidth: 140,
+    justifyContent: 'center',
+  },
+  vehicleButtonText: {
+    color: 'white',
+    fontWeight: '600',
+    marginLeft: 8,
+    fontSize: 14,
+  },
+  carButton: {
+    backgroundColor: '#FF6B6B',
+  },
+  bikeButton: {
+    backgroundColor: '#4ECDC4',
+  },
+  publicTransportButton: {
+    backgroundColor: '#45B7D1',
+  },
+  walkButton: {
+    backgroundColor: '#96CEB4',
   },
 });
 

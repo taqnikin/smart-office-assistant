@@ -27,6 +27,10 @@ interface AppConfig {
     timeout: number;
     maxRetryAttempts: number;
   };
+  chatbot: {
+    webhookUrl: string;
+    enabled: boolean;
+  };
   notifications: {
     enabled: boolean;
   };
@@ -101,8 +105,8 @@ class ConfigService {
 
     return {
       supabase: {
-        url: getEnvVar('EXPO_PUBLIC_SUPABASE_URL', 'https://udnhkdnbvjzcxooukqrq.supabase.co'),
-        anonKey: getEnvVar('EXPO_PUBLIC_SUPABASE_ANON_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVkbmhrZG5idmp6Y3hvb3VrcXJxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDg2Njk1NTYsImV4cCI6MjA2NDI0NTU1Nn0.fUGiIMEf7xk7R0G9EFOjYkJpO3ptkrMYjnwkA-PeOPs'),
+        url: getEnvVar('EXPO_PUBLIC_SUPABASE_URL'),
+        anonKey: getEnvVar('EXPO_PUBLIC_SUPABASE_ANON_KEY'),
       },
       app: {
         name: getEnvVar('EXPO_PUBLIC_APP_NAME', 'Smart Office Assistant'),
@@ -123,6 +127,10 @@ class ConfigService {
         timeout: getNumberEnvVar('EXPO_PUBLIC_API_TIMEOUT', 30000), // 30 seconds
         maxRetryAttempts: getNumberEnvVar('EXPO_PUBLIC_MAX_RETRY_ATTEMPTS', 3),
       },
+      chatbot: {
+        webhookUrl: getEnvVar('EXPO_PUBLIC_CHATBOT_WEBHOOK_URL', 'https://n8n.taqnik.in/webhook/a2e1a26e-d2bc-4e1c-b94a-cfb56f63489e'),
+        enabled: getBooleanEnvVar('EXPO_PUBLIC_CHATBOT_ENABLED', true),
+      },
       notifications: {
         enabled: getBooleanEnvVar('EXPO_PUBLIC_NOTIFICATION_ENABLED', true),
       },
@@ -133,11 +141,15 @@ class ConfigService {
   }
 
   private getFallbackConfiguration(): AppConfig {
-    console.log('ConfigService: Creating fallback configuration...');
+    console.warn('ConfigService: Using fallback configuration - Environment variables not found!');
+    console.warn('ConfigService: Please set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY');
+
+    // SECURITY: Never use hardcoded credentials in production
+    // These are placeholder values that will cause the app to fail safely
     return {
       supabase: {
-        url: 'https://udnhkdnbvjzcxooukqrq.supabase.co',
-        anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVkbmhrZG5idmp6Y3hvb3VrcXJxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDg2Njk1NTYsImV4cCI6MjA2NDI0NTU1Nn0.fUGiIMEf7xk7R0G9EFOjYkJpO3ptkrMYjnwkA-PeOPs',
+        url: 'MISSING_SUPABASE_URL_ENV_VAR',
+        anonKey: 'MISSING_SUPABASE_ANON_KEY_ENV_VAR',
       },
       app: {
         name: 'Smart Office Assistant',
@@ -158,6 +170,10 @@ class ConfigService {
         timeout: 30000, // 30 seconds
         maxRetryAttempts: 3,
       },
+      chatbot: {
+        webhookUrl: 'https://n8n.taqnik.in/webhook/a2e1a26e-d2bc-4e1c-b94a-cfb56f63489e',
+        enabled: true,
+      },
       notifications: {
         enabled: true,
       },
@@ -171,19 +187,32 @@ class ConfigService {
     const errors: string[] = [];
 
     // Validate required Supabase configuration
-    if (!this.config.supabase.url) {
-      errors.push('EXPO_PUBLIC_SUPABASE_URL is required');
+    if (!this.config.supabase.url || this.config.supabase.url.includes('MISSING')) {
+      errors.push('EXPO_PUBLIC_SUPABASE_URL is required and must be set');
     }
 
-    if (!this.config.supabase.anonKey) {
-      errors.push('EXPO_PUBLIC_SUPABASE_ANON_KEY is required');
+    if (!this.config.supabase.anonKey || this.config.supabase.anonKey.includes('MISSING')) {
+      errors.push('EXPO_PUBLIC_SUPABASE_ANON_KEY is required and must be set');
     }
 
     // Validate URL format
     try {
-      new URL(this.config.supabase.url);
+      if (this.config.supabase.url && !this.config.supabase.url.includes('MISSING')) {
+        new URL(this.config.supabase.url);
+      }
     } catch {
       errors.push('EXPO_PUBLIC_SUPABASE_URL must be a valid URL');
+    }
+
+    // Production-specific validations
+    if (this.config.app.environment === 'production') {
+      if (this.config.features.debugLogging) {
+        errors.push('Debug logging must be disabled in production');
+      }
+
+      if (this.config.supabase.url.includes('localhost') || this.config.supabase.url.includes('127.0.0.1')) {
+        errors.push('Production cannot use localhost URLs');
+      }
     }
 
     // Validate security settings
@@ -284,6 +313,14 @@ class ConfigService {
     return this.config.web.cspEnabled;
   }
 
+  get chatbotWebhookUrl(): string {
+    return this.config.chatbot.webhookUrl;
+  }
+
+  get chatbotEnabled(): boolean {
+    return this.config.chatbot.enabled;
+  }
+
   // Security helper methods
   isFeatureEnabled(feature: keyof AppConfig['features']): boolean {
     return this.config.features[feature];
@@ -303,6 +340,7 @@ class ConfigService {
         api: this.config.api,
         notifications: this.config.notifications,
         web: this.config.web,
+        chatbot: this.config.chatbot,
         // Don't log sensitive data
         supabase: {
           url: this.config.supabase.url,

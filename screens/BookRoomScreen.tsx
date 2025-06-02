@@ -13,9 +13,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { toast } from 'sonner-native';
 import { AuthContext } from '../AuthContext';
 import { useNotifications } from '../contexts/NotificationContext';
+import { useBookingNotifications, useErrorNotifications } from '../hooks/useNotifications';
 import { roomAPI, type Room, type RoomBooking } from '../lib/supabase-api';
 
 // Time slots for booking (24-hour format for database)
@@ -50,6 +50,13 @@ export default function BookRoomScreen() {
   const navigation = useNavigation();
   const { user } = useContext(AuthContext);
   const { sendRoomBookingConfirmation, scheduleRoomReminder } = useNotifications();
+  const {
+    notifyBookingSuccess,
+    notifyBookingError,
+    notifyBookingConflict,
+    confirmBookingCancellation
+  } = useBookingNotifications();
+  const { notifyNetworkError, notifyAPIError, notifyValidationError } = useErrorNotifications();
 
   // State
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -75,8 +82,7 @@ export default function BookRoomScreen() {
       setRooms(roomsData);
       setFilteredRooms(roomsData);
     } catch (error) {
-      console.error('Error loading rooms:', error);
-      toast.error('Failed to load rooms');
+      notifyAPIError('load rooms');
     } finally {
       setLoading(false);
     }
@@ -108,8 +114,7 @@ export default function BookRoomScreen() {
 
       setFilteredRooms(roomsWithAvailability);
     } catch (error) {
-      console.error('Error checking availability:', error);
-      toast.error('Failed to check room availability');
+      notifyAPIError('check room availability');
     } finally {
       setAvailabilityLoading(false);
     }
@@ -155,15 +160,7 @@ export default function BookRoomScreen() {
     return date.toDateString() === selectedDate.toDateString();
   };
   
-  // Handle room selection
-  const handleRoomSelection = (room) => {
-    setSelectedRoom(room);
-  };
-  
-  // Handle time slot selection
-  const handleTimeSlotSelection = (timeSlot) => {
-    setSelectedTimeSlot(timeSlot);
-  };
+
   
   // Apply filters
   const applyFilters = () => {
@@ -204,25 +201,88 @@ export default function BookRoomScreen() {
     }
   };
   
+  // Validate booking inputs
+  const validateBookingInputs = (): boolean => {
+    // Check if user is authenticated
+    if (!user?.id) {
+      notifyBookingError('Please sign in to book a room');
+      return false;
+    }
+
+    // Check if room is selected
+    if (!selectedRoom) {
+      notifyValidationError('Room Selection', 'Please select a room');
+      return false;
+    }
+
+    // Check if time slot is selected
+    if (!selectedTimeSlot) {
+      notifyValidationError('Time Selection', 'Please select a time slot');
+      return false;
+    }
+
+    // Check if purpose is provided
+    if (!purpose.trim()) {
+      notifyValidationError('Purpose', 'Please enter a purpose for booking');
+      return false;
+    }
+
+    // Check purpose length
+    if (purpose.trim().length < 3) {
+      notifyValidationError('Purpose', 'Purpose must be at least 3 characters long');
+      return false;
+    }
+
+    if (purpose.trim().length > 200) {
+      notifyValidationError('Purpose', 'Purpose must be less than 200 characters');
+      return false;
+    }
+
+    // Check if room is still available
+    if (selectedRoom.isAvailable === false) {
+      notifyBookingConflict(selectedRoom.name, formatTimeForDisplay(selectedTimeSlot));
+      return false;
+    }
+
+    // Check if selected date is not in the past
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const bookingDate = new Date(selectedDate);
+    bookingDate.setHours(0, 0, 0, 0);
+
+    if (bookingDate < today) {
+      notifyValidationError('Date', 'Cannot book rooms for past dates');
+      return false;
+    }
+
+    // Check if selected time is not in the past for today's bookings
+    if (bookingDate.getTime() === today.getTime()) {
+      const now = new Date();
+      const [hours, minutes] = selectedTimeSlot.split(':').map(Number);
+      const bookingTime = new Date();
+      bookingTime.setHours(hours, minutes, 0, 0);
+
+      if (bookingTime <= now) {
+        notifyValidationError('Time', 'Cannot book rooms for past time slots');
+        return false;
+      }
+    }
+
+    // Check if end time doesn't exceed business hours
+    const endTime = calculateEndTime(selectedTimeSlot, duration);
+    const [endHours] = endTime.split(':').map(Number);
+    if (endHours > 18) { // Assuming business hours end at 6 PM
+      notifyValidationError('Duration', 'Booking cannot extend beyond 6:00 PM');
+      return false;
+    }
+
+    return true;
+  };
+
   // Book room
   const bookRoom = async () => {
-    if (!selectedRoom || !selectedTimeSlot) {
-      toast.error('Please select a room and time slot');
-      return;
-    }
-
-    if (!purpose.trim()) {
-      toast.error('Please enter a purpose for booking');
-      return;
-    }
-
-    if (!user?.id) {
-      toast.error('Please sign in to book a room');
-      return;
-    }
-
-    if (selectedRoom.isAvailable === false) {
-      toast.error('This room is no longer available for the selected time');
+    // Validate all inputs first
+    if (!validateBookingInputs()) {
       return;
     }
 
@@ -231,6 +291,19 @@ export default function BookRoomScreen() {
 
       const dateStr = selectedDate.toISOString().split('T')[0];
       const endTime = calculateEndTime(selectedTimeSlot, duration);
+
+      // Double-check availability before booking
+      const isStillAvailable = await roomAPI.checkRoomAvailability(
+        selectedRoom.id,
+        dateStr,
+        selectedTimeSlot,
+        endTime
+      );
+
+      if (!isStillAvailable) {
+        notifyBookingConflict(selectedRoom.name, formatTimeForDisplay(selectedTimeSlot));
+        return;
+      }
 
       const booking: Omit<RoomBooking, 'id' | 'created_at' | 'updated_at'> = {
         user_id: user.id,
@@ -246,8 +319,15 @@ export default function BookRoomScreen() {
       const createdBooking = await roomAPI.createBooking(booking);
 
       // Send confirmation notification
-      const formattedDate = selectedDate.toLocaleDateString();
+      const formattedDate = selectedDate.toLocaleDateString('en-US', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
       const formattedTime = formatTimeForDisplay(selectedTimeSlot);
+      const endTimeFormatted = formatTimeForDisplay(endTime);
+
       await sendRoomBookingConfirmation(selectedRoom.name, formattedDate, formattedTime);
 
       // Schedule reminder notification
@@ -257,17 +337,68 @@ export default function BookRoomScreen() {
 
       await scheduleRoomReminder(selectedRoom.name, bookingDateTime, createdBooking.id);
 
-      toast.success(`Room ${selectedRoom.name} booked successfully for ${formattedTime}!`);
+      // Show success notification with comprehensive details
+      notifyBookingSuccess(
+        selectedRoom.name,
+        formattedDate,
+        `${formattedTime} - ${endTimeFormatted} (${duration}h)`
+      );
+
       navigation.goBack();
 
-    } catch (error) {
-      console.error('Error booking room:', error);
-      toast.error('Failed to book room. Please try again.');
+    } catch (error: any) {
+      // Handle different types of errors
+      if (error?.message?.includes('conflict') || error?.message?.includes('already booked')) {
+        notifyBookingConflict(selectedRoom.name, formatTimeForDisplay(selectedTimeSlot));
+      } else if (error?.message?.includes('network') || error?.message?.includes('connection')) {
+        notifyNetworkError('book the room');
+      } else {
+        notifyBookingError('Failed to book room. Please try again.');
+      }
     } finally {
       setBookingLoading(false);
     }
   };
-  
+
+  // Handle time slot selection with validation
+  const handleTimeSlotSelectionWithValidation = (timeSlot: string) => {
+    // Check if the time slot is in the past for today's date
+    const today = new Date();
+    const bookingDate = new Date(selectedDate);
+
+    if (bookingDate.toDateString() === today.toDateString()) {
+      const now = new Date();
+      const [hours, minutes] = timeSlot.split(':').map(Number);
+      const slotTime = new Date();
+      slotTime.setHours(hours, minutes, 0, 0);
+
+      if (slotTime <= now) {
+        notifyValidationError('Time Selection', 'Cannot select past time slots for today');
+        return;
+      }
+    }
+
+    setSelectedTimeSlot(timeSlot);
+  };
+
+  // Reset form when date changes
+  const handleDateSelection = (date: Date) => {
+    setSelectedDate(date);
+    // Reset selections when date changes
+    setSelectedRoom(null);
+    setSelectedTimeSlot(null);
+    setPurpose('');
+  };
+
+  // Handle room selection with availability check
+  const handleRoomSelectionWithValidation = (room: RoomWithAvailability) => {
+    if (room.isAvailable === false && selectedTimeSlot) {
+      notifyBookingConflict(room.name, formatTimeForDisplay(selectedTimeSlot));
+      return;
+    }
+    setSelectedRoom(room);
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -292,7 +423,7 @@ export default function BookRoomScreen() {
                   styles.dateItem,
                   isDateSelected(date) && styles.selectedDateItem
                 ]}
-                onPress={() => setSelectedDate(date)}
+                onPress={() => handleDateSelection(date)}
               >
                 <Text style={[
                   styles.dayName,
@@ -348,7 +479,7 @@ export default function BookRoomScreen() {
                     selectedRoom?.id === item.id && styles.selectedRoomCard,
                     item.isAvailable === false && styles.unavailableRoomCard
                   ]}
-                  onPress={() => handleRoomSelection(item)}
+                  onPress={() => handleRoomSelectionWithValidation(item)}
                   disabled={item.isAvailable === false}
                 >
                   <View style={styles.roomInfo}>
@@ -417,7 +548,7 @@ export default function BookRoomScreen() {
                     styles.timeSlot,
                     selectedTimeSlot === timeSlot && styles.selectedTimeSlot
                   ]}
-                  onPress={() => handleTimeSlotSelection(timeSlot)}
+                  onPress={() => handleTimeSlotSelectionWithValidation(timeSlot)}
                 >
                   <Text style={[
                     styles.timeSlotText,
@@ -458,14 +589,36 @@ export default function BookRoomScreen() {
         {/* Booking Purpose */}
         {selectedTimeSlot && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Purpose</Text>
+            <View style={styles.purposeHeader}>
+              <Text style={styles.sectionTitle}>Purpose</Text>
+              <Text style={[
+                styles.characterCounter,
+                purpose.length > 200 && styles.characterCounterError
+              ]}>
+                {purpose.length}/200
+              </Text>
+            </View>
             <TextInput
-              style={styles.purposeInput}
+              style={[
+                styles.purposeInput,
+                purpose.length > 200 && styles.purposeInputError
+              ]}
               placeholder="e.g., Team Meeting, Client Call, etc."
               value={purpose}
               onChangeText={setPurpose}
               multiline
+              maxLength={250} // Allow slight overflow for better UX
             />
+            {purpose.length > 200 && (
+              <Text style={styles.validationError}>
+                Purpose must be less than 200 characters
+              </Text>
+            )}
+            {purpose.length > 0 && purpose.length < 3 && (
+              <Text style={styles.validationError}>
+                Purpose must be at least 3 characters long
+              </Text>
+            )}
           </View>
         )}
         
@@ -795,6 +948,20 @@ const styles = StyleSheet.create({
     color: '#222B45',
     marginHorizontal: 24,
   },
+  purposeHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  characterCounter: {
+    fontSize: 14,
+    color: '#8F9BB3',
+  },
+  characterCounterError: {
+    color: '#FF3B30',
+    fontWeight: '600',
+  },
   purposeInput: {
     backgroundColor: 'white',
     borderRadius: 12,
@@ -807,6 +974,18 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 2,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  purposeInputError: {
+    borderColor: '#FF3B30',
+    backgroundColor: '#FFF5F5',
+  },
+  validationError: {
+    fontSize: 12,
+    color: '#FF3B30',
+    marginTop: 8,
+    marginLeft: 4,
   },
   bookButton: {
     backgroundColor: '#4A80F0',
